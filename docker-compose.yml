@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: oiltech
+      POSTGRES_USER: oiltech
+      POSTGRES_PASSWORD: oiltech
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oiltech -d oiltech"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  core-service:
+    build:
+      context: .
+      args:
+        APP: core-service
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  collector-service:
+    build:
+      context: .
+      args:
+        APP: collector-service
+    env_file: .env
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+
+  scheduler-service:
+    build:
+      context: .
+      args:
+        APP: scheduler-service
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mqtt-simulator:
+    build:
+      context: .
+      args:
+        APP: mqtt-simulator
+    env_file: .env
+    depends_on:
+      mqtt:
+        condition: service_started
+
+  equipment-work-periods:
+    build:
+      context: .
+      args:
+        APP: equipment-work-periods
+    env_file: .env
+    ports:
+      - "9000:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dashboard:
+    image: nginx:alpine
+    ports:
+      - "8090:80"
+    volumes:
+      - ./web/dashboard:/usr/share/nginx/html:ro
+    depends_on:
+      - core-service
+
+volumes:
+  pg-data:
